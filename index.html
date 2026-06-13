@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SCY Intelligence AI Studio</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://checkout.flutterwave.com/v3.js"></script>
+  <script src="https://js.paystack.co/v1/inline.js"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import {
+      getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+      signOut, onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import {
+      getFirestore, collection, addDoc, getDocs, query, where, serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    // ── Firebase Config ──
+    const firebaseConfig = {
+      apiKey: "AIzaSyDLH9tVNRDCH5ddwIUgsxLIC11-Xc05NZg",
+      authDomain: "scy-intelligence-ai.firebaseapp.com",
+      projectId: "scy-intelligence-ai",
+      storageBucket: "scy-intelligence-ai.firebasestorage.app",
+      messagingSenderId: "17271700031",
+      appId: "1:17271700031:web:99c29ee4affbcd600f968a"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const ADMIN_EMAIL = "ibraheemadebola92@gmail.com";
+
+    let currentUser = null;
+    let payMethod = "opay";
+
+    // ── Portfolio ──
+    const portfolio = [
+      { title: "Flyer Campaign", desc: "Social media promotional flyer for maximum engagement.", tag: "Flyer Design", color: "#ec4899", img: "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=600&q=80" },
+      { title: "AI Video Ad", desc: "High-converting faceless advertisement with AI visuals.", tag: "Video Creation", color: "#a855f7", img: "https://images.unsplash.com/photo-1536240478700-b869ad10e8ff?w=600&q=80" },
+      { title: "Logo Branding", desc: "Premium visual identity crafted for brand personality.", tag: "Logo Design", color: "#06b6d4", img: "https://images.unsplash.com/photo-1626785774573-4b799315345d?w=600&q=80" },
+      { title: "Image Editing", desc: "Professional retouching and creative compositing.", tag: "Image Editing", color: "#f97316", img: "https://images.unsplash.com/photo-1572044162444-ad60f128bdea?w=600&q=80" },
+      { title: "Faceless Ads", desc: "Scroll-stopping creatives for Instagram and TikTok.", tag: "Faceless Ads", color: "#22c55e", img: "https://images.unsplash.com/photo-1563986768609-322da13575f3?w=600&q=80" },
+      { title: "Brand Identity", desc: "Full brand kit with logo, palette, and typography.", tag: "Branding", color: "#eab308", img: "https://images.unsplash.com/photo-1558655146-9f40138edfeb?w=600&q=80" },
+    ];
+
+    // ── Render Portfolio ──
+    function renderPortfolio() {
+      const grid = document.getElementById("portfolio-grid");
+      grid.innerHTML = portfolio.map(p => `
+        <div style="border-radius:16px;overflow:hidden;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);">
+          <div style="position:relative;height:180px;overflow:hidden;">
+            <img src="${p.img}" alt="${p.title}" style="width:100%;height:100%;object-fit:cover;" />
+            <div style="position:absolute;inset:0;background:linear-gradient(to top,rgba(0,0,0,0.6),transparent);"></div>
+            <span style="position:absolute;top:10px;left:10px;font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid ${p.color};color:${p.color};background:${p.color}22;">${p.tag}</span>
+          </div>
+          <div style="padding:14px;">
+            <h3 style="font-weight:700;font-size:15px;">${p.title}</h3>
+            <p style="color:rgba(255,255,255,0.5);font-size:13px;margin-top:4px;">${p.desc}</p>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    // ── Auth State ──
+    onAuthStateChanged(auth, async (user) => {
+      currentUser = user;
+      if (user) {
+        document.getElementById("auth-section").style.display = "none";
+        document.getElementById("book-section").style.display = "block";
+        document.getElementById("portfolio-section").style.display = "block";
+        document.getElementById("upload-section").style.display = "block";
+        document.getElementById("header-user").style.display = "flex";
+        document.getElementById("header-email").textContent = user.email;
+
+        if (user.email === ADMIN_EMAIL) {
+          document.getElementById("admin-badge").style.display = "inline-block";
+          document.getElementById("admin-section").style.display = "block";
+          document.getElementById("client-section").style.display = "none";
+          await loadAllOrders();
+        } else {
+          document.getElementById("client-section").style.display = "block";
+          document.getElementById("admin-section").style.display = "none";
+          await loadMyOrders(user.uid);
+        }
+      } else {
+        document.getElementById("auth-section").style.display = "block";
+        document.getElementById("client-section").style.display = "none";
+        document.getElementById("admin-section").style.display = "none";
+        document.getElementById("book-section").style.display = "block";
+        document.getElementById("portfolio-section").style.display = "block";
+        document.getElementById("upload-section").style.display = "block";
+        document.getElementById("header-user").style.display = "none";
+      }
+    });
+
+    // ── Load My Orders ──
+    async function loadMyOrders(uid) {
+      try {
+        const q = query(collection(db, "orders"), where("uid", "==", uid));
+        const snap = await getDocs(q);
+        const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const total = orders.reduce((s, o) => s + (o.amount || 0), 0);
+        document.getElementById("client-order-count").textContent = orders.length;
+        document.getElementById("client-total").textContent = "₦" + total.toLocaleString();
+        document.getElementById("client-receipt-count").textContent = orders.length;
+        const list = document.getElementById("client-orders-list");
+        if (orders.length === 0) {
+          list.innerHTML = `<p style="color:rgba(255,255,255,0.3);">No orders yet. Book a service below!</p>`;
+        } else {
+          list.innerHTML = orders.map(o => `
+            <div style="display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.08);padding:10px 0;">
+              <div>
+                <p style="font-weight:600;">${o.service}</p>
+                <p style="font-size:11px;color:rgba(255,255,255,0.3);">${o.reference || ""}</p>
+              </div>
+              <div style="text-align:right;">
+                <p>₦${(o.amount||0).toLocaleString()}</p>
+                <p style="font-size:12px;color:#4ade80;">${o.status}</p>
+              </div>
+            </div>
+          `).join("");
+        }
+      } catch(e) { console.error(e); }
+    }
+
+    // ── Load All Orders (Admin) ──
+    async function loadAllOrders() {
+      try {
+        const snap = await getDocs(collection(db, "orders"));
+        const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const total = orders.reduce((s, o) => s + (o.amount || 0), 0);
+        const paid = orders.filter(o => o.status === "Paid").length;
+        const pending = orders.filter(o => o.status !== "Paid").length;
+        document.getElementById("admin-total-orders").textContent = orders.length;
+        document.getElementById("admin-revenue").textContent = "₦" + total.toLocaleString();
+        document.getElementById("admin-paid").textContent = paid;
+        document.getElementById("admin-pending").textContent = pending;
+        const tbody = document.getElementById("admin-orders-tbody");
+        if (orders.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="5" style="color:rgba(255,255,255,0.3);padding:16px;">No orders yet.</td></tr>`;
+        } else {
+          tbody.innerHTML = orders.map(o => `
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+              <td style="padding:12px 8px;">${o.clientName||""}</td>
+              <td>${o.service||""}</td>
+              <td>₦${(o.amount||0).toLocaleString()}</td>
+              <td style="color:#4ade80;">${o.status||""}</td>
+              <td style="color:rgba(255,255,255,0.3);font-size:11px;">${o.reference||""}</td>
+            </tr>
+          `).join("");
+        }
+      } catch(e) { console.error(e); }
+    }
+
+    // ── Save Order ──
+    async function saveOrder(ref, amount) {
+      if (!currentUser) return;
+      const name = document.getElementById("f-name").value;
+      const email = document.getElementById("f-email").value;
+      const service = document.getElementById("f-service").value;
+      const details = document.getElementById("f-details").value;
+      await addDoc(collection(db, "orders"), {
+        uid: currentUser.uid,
+        clientName: name, clientEmail: email, service, details,
+        amount, reference: ref, status: "Paid", createdAt: serverTimestamp()
+      });
+      if (currentUser.email === ADMIN_EMAIL) await loadAllOrders();
+      else await loadMyOrders(currentUser.uid);
+    }
+
+    // ── Receipt ──
+    function generateReceipt(ref, amount) {
+      const name = document.getElementById("f-name").value;
+      const email = document.getElementById("f-email").value;
+      const service = document.getElementById("f-service").value;
+      const w = window.open("", "_blank");
+      w.document.write(`
+        <html><head><title>Receipt</title></head>
+        <body style="font-family:sans-serif;padding:30px;max-width:500px;margin:auto;">
+          <div style="text-align:center;">
+            <h2 style="color:#7c3aed;">SCY Intelligence AI Studio</h2>
+            <p style="color:#888;">Official Payment Receipt</p>
+          </div><hr/>
+          <p><strong>Customer:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Service:</strong> ${service}</p>
+          <p><strong>Reference:</strong> ${ref}</p>
+          <p><strong>Amount:</strong> ₦${amount.toLocaleString()}</p>
+          <p style="color:green;"><strong>Status:</strong> ✅ PAID</p>
+          <hr/><p style="text-align:center;color:#888;">Thank you for choosing SCY Intelligence AI Studio</p>
+          <script>window.onload=function(){window.print();}<\/script>
+        </body></html>
+      `);
+    }
+
+    // ── Payment ──
+    window.handlePay = function() {
+      const name = document.getElementById("f-name").value;
+      const email = document.getElementById("f-email").value;
+      if (!name || !email) { alert("Please fill your name and email"); return; }
+      if (payMethod === "flutterwave") {
+        window.FlutterwaveCheckout({
+          public_key: "YOUR_FLUTTERWAVE_PUBLIC_KEY",
+          tx_ref: "scy-" + Date.now(), amount: 5000, currency: "NGN",
+          payment_options: "card,banktransfer,ussd",
+          customer: { email, name },
+          customizations: { title: "SCY Intelligence AI Studio", description: document.getElementById("f-service").value },
+          callback: async (res) => { await saveOrder(res.transaction_id, 5000); generateReceipt(res.transaction_id, 5000); alert("Payment successful!"); },
+          onclose: () => {}
+        });
+      } else if (payMethod === "paystack") {
+        const handler = window.PaystackPop.setup({
+          key: "YOUR_PAYSTACK_PUBLIC_KEY", email, amount: 500000, currency: "NGN",
+          callback: async (res) => { await saveOrder(res.reference, 5000); generateReceipt(res.reference, 5000); alert("Payment successful!"); },
+          onClose: () => {}
+        });
+        handler.openIframe();
+      }
+    };
+
+    window.handleOpayConfirm = function() {
+      const name = document.getElementById("f-name").value;
+      const email = document.getElementById("f-email").value;
+      const service = document.getElementById("f-service").value;
+      const details = document.getElementById("f-details").value;
+      if (!name || !email) { alert("Please fill your name and email"); return; }
+      const msg = `Hello SCY Intelligence AI Studio,%0A%0AI just made an OPay payment.%0A%0AName: ${name}%0AEmail: ${email}%0AService: ${service}%0ADetails: ${details}%0A%0APlease confirm my payment.`;
+      window.open(`https://wa.me/2348103348891?text=${msg}`, "_blank");
+      document.getElementById("opay-confirm-msg").style.display = "block";
+    };
+
+    window.handleWhatsApp = function() {
+      const name = document.getElementById("f-name").value;
+      const service = document.getElementById("f-service").value;
+      const details = document.getElementById("f-details").value;
+      const msg = `Hello SCY Intelligence AI Studio,%0A%0AMy Name: ${name}%0AService Needed: ${service}%0ADetails: ${details}`;
+      window.open(`https://wa.me/2348103348891?text=${msg}`, "_blank");
+    };
+
+    window.handleAuth = async function() {
+      const email = document.getElementById("auth-email").value;
+      const password = document.getElementById("auth-password").value;
+      const name = document.getElementById("auth-name")?.value;
+      const isLogin = document.getElementById("auth-title").textContent === "Client Login";
+      document.getElementById("auth-error").textContent = "";
+      if (!email || !password) { document.getElementById("auth-error").textContent = "Please fill all fields."; return; }
+      try {
+        if (isLogin) await signInWithEmailAndPassword(auth, email, password);
+        else await createUserWithEmailAndPassword(auth, email, password);
+      } catch(err) {
+        document.getElementById("auth-error").textContent = err.message.replace("Firebase: ", "");
+      }
+    };
+
+    window.toggleAuthMode = function() {
+      const title = document.getElementById("auth-title");
+      const nameField = document.getElementById("auth-name-wrap");
+      const toggleBtn = document.getElementById("auth-toggle-btn");
+      const isLogin = title.textContent === "Client Login";
+      title.textContent = isLogin ? "Create Account" : "Client Login";
+      nameField.style.display = isLogin ? "block" : "none";
+      toggleBtn.textContent = isLogin ? "Already have an account? Login" : "Don't have an account? Create one";
+    };
+
+    window.handleLogout = async function() {
+      await signOut(auth);
+    };
+
+    window.setPayMethod = function(method) {
+      payMethod = method;
+      document.getElementById("opay-instructions").style.display = method === "opay" ? "block" : "none";
+      document.getElementById("pay-btn-wrap").style.display = method !== "opay" ? "block" : "none";
+      document.getElementById("opay-btn-wrap").style.display = method === "opay" ? "block" : "none";
+    };
+
+    // ── Init ──
+    renderPortfolio();
+    window.setPayMethod("opay");
+  </script>
+</head>
+<body style="background:#000;color:#fff;font-family:sans-serif;margin:0;min-height:100vh;">
+
+  <!-- Header -->
+  <header style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.1);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+    <div>
+      <h1 style="font-size:28px;font-weight:800;margin:0;">SCY Intelligence AI Studio</h1>
+      <p style="color:rgba(255,255,255,0.5);margin:4px 0 0;">AI-powered creative solutions</p>
+    </div>
+    <div id="header-user" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span id="admin-badge" style="display:none;background:rgba(168,85,247,0.2);color:#c084fc;border:1px solid rgba(168,85,247,0.3);padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;">ADMIN</span>
+      <span id="header-email" style="color:rgba(255,255,255,0.5);font-size:13px;"></span>
+      <button onclick="handleLogout()" style="background:rgba(239,68,68,0.2);color:#f87171;border:1px solid rgba(239,68,68,0.3);padding:6px 16px;border-radius:10px;cursor:pointer;">Logout</button>
+    </div>
+  </header>
+
+  <main style="padding:24px 16px;display:grid;gap:24px;max-width:900px;margin:auto;">
+
+    <!-- Auth Section -->
+    <div id="auth-section" style="background:rgba(255,255,255,0.05);padding:28px;border-radius:20px;max-width:460px;">
+      <h2 id="auth-title" style="font-size:24px;font-weight:700;margin:0 0 20px;">Client Login</h2>
+      <div id="auth-name-wrap" style="display:none;margin-bottom:12px;">
+        <input id="auth-name" placeholder="Full Name" style="width:100%;padding:12px;border-radius:12px;background:#000;border:1px solid rgba(255,255,255,0.1);color:#fff;box-sizing:border-box;" />
+      </div>
+      <input id="auth-email" placeholder="Email Address" style="width:100%;padding:12px;border-radius:12px;background:#000;border:1px solid rgba(255,255,255,0.1);color:#fff;margin-bottom:12px;box-sizing:border-box;" />
+      <input id="auth-password" type="password" placeholder="Password" style="width:100%;padding:12px;border-radius:12px;background:#000;border:1px solid rgba(255,255,255,0.1);color:#fff;margin-bottom:12px;box-sizing:border-box;" />
+      <p id="auth-error" style="color:#f87171;font-size:13px;margin-bottom:10px;"></p>
+      <button onclick="handleAuth()" style="width:100%;padding:14px;border-radius:12px;background:#7c3aed;color:#fff;font-weight:700;border:none;cursor:pointer;font-size:15px;">Login</button>
+      <button id="auth-toggle-btn" onclick="toggleAuthMode()" style="width:100%;margin-top:10px;background:none;border:none;color:rgba(255,255,255,0.4);cursor:pointer;font-size:13px;">Don't have an account? Create one</button>
+    </div>
+
+    <!-- Client Dashboard -->
+    <div id="client-section" style="display:none;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);padding:24px;border-radius:20px;">
+      <h2 style="font-size:22px;font-weight:700;margin:0 0 20px;">My Dashboard</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px;">
+        <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);padding:20px;border-radius:16px;">
+          <p style="color:rgba(255,255,255,0.5);font-size:13px;">Orders</p>
+          <p id="client-order-count" style="font-size:32px;font-weight:800;">0</p>
+        </div>
+        <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);padding:20px;border-radius:16px;">
+          <p style="color:rgba(255,255,255,0.5);font-size:13px;">Total Paid</p>
+          <p id="client-total" style="font-size:32px;font-weight:800;">₦0</p>
+        </div>
+        <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);padding:20px;border-radius:16px;">
+          <p style="color:rgba(255,255,255,0.5);font-size:13px;">Receipts</p>
+          <p id="client-receipt-count" style="font-size:32px;font-weight:800;">0</p>
+        </div>
+      </div>
+      <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);padding:20px;border-radius:16px;">
+        <h3 style="font-weight:700;margin:0 0 14px;">Your Orders</h3>
+        <div id="client-orders-list"></div>
+      </div>
+    </div>
+
+    <!-- Admin Dashboard -->
+    <div id="admin-section" style="display:none;background:rgba(255,255,255,0.03);border:1px solid rgba(168,85,247,0.2);padding:24px;border-radius:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
+        <div>
+          <h2 style="font-size:24px;font-weight:700;margin:0;">Admin Dashboard</h2>
+          <p style="color:rgba(255,255,255,0.5);font-size:13px;margin:4px 0 0;">Manage clients, orders and payments</p>
+        </div>
+        <span style="background:rgba(168,85,247,0.2);color:#c084fc;border:1px solid rgba(168,85,247,0.3);padding:6px 14px;border-radius:10px;font-size:12px;font-weight:700;">Admin Access</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px;">
+        <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);padding:18px;border-radius:16px;">
+          <p style="color:rgba(255,255,255,0.5);font-size:12px;">Total Orders</p>
+          <p id="admin-total-orders" style="font-size:28px;font-weight:800;">0</p>
+        </div>
+        <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);padding:18px;border-radius:16px;">
+          <p style="color:rgba(255,255,255,0.5);font-size:12px;">Revenue</p>
+          <p id="admin-revenue" style="font-size:28px;font-weight:800;">₦0</p>
+        </div>
+        <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);padding:18px;border-radius:16px;">
+          <p style="color:rgba(255,255,255,0.5);font-size:12px;">Paid</p>
+          <p id="admin-paid" style="font-size:28px;font-weight:800;">0</p>
+        </div>
+        <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);padding:18px;border-radius:16px;">
+          <p style="color:rgba(255,255,255,0.5);font-size:12px;">Pending</p>
+          <p id="admin-pending" style="font-size:28px;font-weight:800;">0</p>
+        </div>
+      </div>
+      <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);padding:20px;border-radius:16px;overflow-x:auto;">
+        <h3 style="font-weight:700;margin:0 0 14px;">All Orders</h3>
+        <table style="width:100%;text-align:left;font-size:13px;border-collapse:collapse;">
+          <thead>
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.4);">
+              <th style="padding-bottom:10px;">Client</th>
+              <th>Service</th>
+              <th>Amount</th>
+              <th>Status</th>
+              <th>Reference</th>
+            </tr>
+          </thead>
+          <tbody id="admin-orders-tbody">
+            <tr><td colspan="5" style="color:rgba(255,255,255,0.3);padding:16px;">No orders yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Book & Pay -->
+    <div id="book-section" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);padding:24px;border-radius:20px;max-width:560px;">
+      <p style="color:#4ade80;font-size:13px;margin:0 0 14px;">✔ Branded PDF receipt opens after payment. ✔ OPay confirmed via WhatsApp.</p>
+      <h2 style="font-size:24px;font-weight:700;margin:0 0 20px;">Book & Pay</h2>
+      <div style="display:grid;gap:12px;">
+        <input id="f-name" placeholder="Your Name" style="padding:12px;border-radius:12px;background:#000;border:1px solid rgba(255,255,255,0.1);color:#fff;width:100%;box-sizing:border-box;" />
+        <input id="f-email" placeholder="Your Email" style="padding:12px;border-radius:12px;background:#000;border:1px solid rgba(255,255,255,0.1);color:#fff;width:100%;box-sizing:border-box;" />
+        <select id="f-service" style="padding:12px;border-radius:12px;background:#000;border:1px solid rgba(255,255,255,0.1);color:#fff;width:100%;box-sizing:border-box;">
+          <option>Select Service</option>
+          <optgroup label="Design & Media">
+            <option>Flyer Design</option>
+            <option>Faceless Ads</option>
+            <option>Video Creation</option>
+            <option>Logo Design</option>
+            <option>Image Editing</option>
+          </optgroup>
+          <optgroup label="AI & Tech">
+            <option>Prompt Engineering</option>
+            <option>AI Engineering</option>
+            <option>Website Development</option>
+            <option>App Development</option>
+          </optgroup>
+        </select>
+        <textarea id="f-details" placeholder="Project Details" style="padding:12px;border-radius:12px;background:#000;border:1px solid rgba(255,255,255,0.1);color:#fff;width:100%;height:100px;box-sizing:border-box;resize:vertical;"></textarea>
+
+        <!-- Payment Methods -->
+        <div style="display:flex;gap:16px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="pay" value="opay" checked onchange="setPayMethod('opay')" /> OPay
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="pay" value="flutterwave" onchange="setPayMethod('flutterwave')" /> Flutterwave
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="pay" value="paystack" onchange="setPayMethod('paystack')" /> Paystack
+          </label>
+        </div>
+
+        <!-- OPay Instructions -->
+        <div id="opay-instructions" style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);padding:16px;border-radius:12px;font-size:13px;">
+          <p style="color:#4ade80;font-weight:700;margin:0 0 10px;">💳 OPay Payment Instructions</p>
+          <p style="color:rgba(255,255,255,0.6);margin:0 0 6px;">1. Send <strong>₦5,000</strong> to:</p>
+          <p style="margin:4px 0;">📱 <strong>Account Number:</strong> <span style="color:#4ade80;">8103348881</span></p>
+          <p style="margin:4px 0;">👤 <strong>Account Name:</strong> <span style="color:#4ade80;">ELELU IBRAHIM ADEBOLA</span></p>
+          <p style="margin:4px 0;">🏦 <strong>Bank:</strong> <span style="color:#4ade80;">OPay</span></p>
+          <p style="color:rgba(255,255,255,0.6);margin:10px 0 0;">2. Tap the button below to confirm via WhatsApp</p>
+          <p id="opay-confirm-msg" style="display:none;color:#4ade80;font-weight:700;margin-top:8px;">✅ Confirmation sent! We'll verify shortly.</p>
+        </div>
+
+        <!-- Pay Buttons -->
+        <div id="pay-btn-wrap" style="display:none;">
+          <button onclick="handlePay()" style="width:100%;padding:14px;border-radius:12px;background:#7c3aed;color:#fff;font-weight:700;border:none;cursor:pointer;font-size:15px;">Pay ₦5,000</button>
+        </div>
+        <div id="opay-btn-wrap">
+          <button onclick="handleOpayConfirm()" style="width:100%;padding:14px;border-radius:12px;background:#16a34a;color:#fff;font-weight:700;border:none;cursor:pointer;font-size:15px;">✅ I've Paid — Confirm via WhatsApp</button>
+        </div>
+        <button onclick="handleWhatsApp()" style="width:100%;padding:14px;border-radius:12px;background:#22c55e;color:#000;font-weight:700;border:none;cursor:pointer;font-size:15px;">💬 Chat on WhatsApp</button>
+      </div>
+    </div>
+
+    <!-- Portfolio -->
+    <div id="portfolio-section" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);padding:24px;border-radius:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
+        <div>
+          <h2 style="font-size:24px;font-weight:700;margin:0;">Portfolio Showcase</h2>
+          <p style="color:rgba(255,255,255,0.4);font-size:13px;margin:4px 0 0;">Real work. Real results.</p>
+        </div>
+        <span style="background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.1);padding:4px 12px;border-radius:20px;font-size:12px;">6 Projects</span>
+      </div>
+      <div id="portfolio-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;"></div>
+    </div>
+
+    <!-- File Upload -->
+    <div id="upload-section" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);padding:24px;border-radius:20px;">
+      <h2 style="font-size:22px;font-weight:700;margin:0 0 16px;">Client File Upload</h2>
+      <div style="background:rgba(0,0,0,0.4);border:2px dashed rgba(255,255,255,0.15);padding:24px;border-radius:14px;text-align:center;">
+        <input type="file" style="margin-bottom:10px;" />
+        <p style="color:rgba(255,255,255,0.4);font-size:13px;margin:0;">Upload reference files, logos, videos or project materials.</p>
+      </div>
+    </div>
+
+  </main>
+</body>
+</html>
